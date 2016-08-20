@@ -1040,48 +1040,78 @@ exports.geteventbritesubcategories = function(req, res) {
     data.token = req.session.accesstoken;
     data.url = 'subcategories/';
 
+    var allResults = [];
+    var object_count ;
 
-    while (i < auth.eventbrite.defaultPageCount) {
+   for (var i = 1; i < auth.eventbrite.defaultPageCount; i++) {
+
+       (function() {
+            var counterCopy = i;
             request.get({
-                headers: { Authorization: 'Bearer ' + data.token },
-                url: auth.eventbrite.apiURL + data.url,
+                headers: { Authorization: 'Bearer ' + staticToken },
+                url: auth.eventbrite.apiURL + data.url+"?page="+counterCopy,
             }, function(error, response, body) {
                 if (error) {
-                    console.log('error ', error);
+                    console.log(' ------------------ API ERROR HERE --------------------');
+                    console.log('error ' , error );
+                    res.json({ error: error, code: 101 });
                 }
                 if (body) {
+
                     var jsonData = toJSON(body);
-                    saveeventbritesubcategories(jsonData);
-                    res.json({ result: body, code: 200 });
+                    if(jsonData.subcategories) {
+                   
+                        object_count = jsonData.pagination.object_count;
+
+                            for (var j=0 ; j< jsonData.subcategories.length ; j++ ) {
+                                allResults.push( jsonData.subcategories[j] );
+                                if(object_count == allResults.length) {
+                                   // saveeventbritesubcategories(allResults);
+                                    res.json({ result: 'success', code: 200 });
+                                    break;
+                                }
+                            }
+                    }
+                    
+                    if(jsonData.error ) {
+                        if(jsonData.status_code == "400" &&  jsonData.error == "BAD_PAGE") 
+                         console.log('-----------BAD_PAGE ERROR -----------');
+
+                        if(jsonData.status_code == "401" &&  jsonData.error == "INVALID_AUTH") {
+                            console.log('----------- INVALID_AUTH -----------');
+                            //return false;
+                            res.json({ result: jsonData, code: 101 });
+                        }
+                    }
                 }
             });
-        i++;
+        }());
     }
-   
 }
 
 /* save accesstoken into database */
 function saveeventbritesubcategories(eventbritedata) {
     var connection = db.connection();
-    var object_count = eventbritedata.pagination.object_count;
+    var object_count = eventbritedata.length;
+    console.log('object_count ' , object_count );
     if (object_count > 0) {
         for (var i = 0; i < object_count; i++) {
-            var select_query = 'SELECT id FROM `eventbrite_sub_categories` WHERE `sub_category_id` = ' + '"' + eventbritedata.subcategories[i].id + '"';
+            var select_query = 'SELECT id FROM `eventbrite_sub_categories` WHERE `sub_category_id` = ' + '"' + eventbritedata[i].id + '"';
             
             (function() {
                 var counterCopy = i;
-                var savedata = eventbritedata.subcategories[i];
+                var savedata = eventbritedata[i];
                 connection.query(select_query, function(select_error, select_result, field) {
 
                     if (select_error) {
+                        console.log('Database error : ' , err);
                         return;
-                        //res.json({ error: select_error, code: 101 });
                     }
 
                     if (select_result.length == 0) {
                         var query = "INSERT INTO `eventbrite_sub_categories` SET `id` = NULL , ";
                     } else if (select_result.length > 0) {
-                            var query = "UPDATE `eventbrite_sub_categories` SET ";
+                        var query = "UPDATE `eventbrite_sub_categories` SET ";
                     }
 
                     query = query + "  `name` = '" + savedata.name + "'";
@@ -1091,12 +1121,10 @@ function saveeventbritesubcategories(eventbritedata) {
                     if (select_result.length > 0) {
                             query = query + " WHERE `sub_category_id` = '" + savedata.id + "'";
                     }
-
-                    console.log('query ' , query);
-
                     connection.query(query, function(err, results, field) {
                         if (err) {
-                            res.json({ error: err, code: 101 });
+                            console.log('Database error : ' , err);
+                            return;
                         }
 
                         if (counterCopy == (object_count - 1)) {
